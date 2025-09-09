@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Linked List Insertion - Animated</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://pyscript.net/releases/2024.11.1/core.css" />
+  <script type="module" src="https://pyscript.net/releases/2024.11.1/core.js"></script>
+
+  <style>
+    body { font-family: Inter, system-ui, sans-serif; }
+
+    .wrapper {
+      position: relative;
+      width: 100%;
+      min-height: 200px;
+      background: linear-gradient(135deg, #f9fafb, #dbeafe);
+      border-radius: 16px;
+      padding: 24px;
+      border: 2px solid #93c5fd;
+    }
+
+    #listContainer {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      position: relative;
+      z-index: 2;
+      justify-content: center; /* Center align linked list */
+    }
+
+    svg#arrowCanvas {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .node {
+      display: inline-flex;
+      border: 2px solid #1e3a8a;
+      border-radius: 12px;
+      background: linear-gradient(145deg, #e0f2fe, #bfdbfe);
+      overflow: hidden;
+      min-width: 130px;
+      height: 65px;
+      box-shadow: 2px 4px 10px rgba(0,0,0,0.15);
+      font-weight: 600;
+      z-index: 2;
+      transition: transform 0.3s;
+    }
+    .node:hover { transform: scale(1.05); }
+
+    .node .val {
+      width: 80px;
+      display:flex; align-items:center; justify-content:center;
+      border-right:2px solid #1e3a8a;
+      color: #1e3a8a;
+    }
+
+    .node .ptr {
+      width: 50px;
+      display:flex; align-items:center; justify-content:center;
+      color: #1e40af;
+    }
+
+    .placeholder { visibility: hidden; } /* reserves space without showing */
+
+    .moving {
+      position: absolute;
+      z-index: 1000;
+      transition: left 0.65s ease, top 0.65s ease;
+      pointer-events: none;
+      margin: 0;
+    }
+
+    /* Buttons hover effect */
+    .btn {
+      transition: transform 0.2s ease, filter 0.2s ease;
+    }
+    .btn:hover {
+      transform: scale(1.07);
+      filter: brightness(0.9);
+    }
+  </style>
+</head>
+<body class="bg-gray-100 p-6 flex flex-col items-center justify-center min-h-screen">
+
+  <h1 class="text-3xl font-semibold mb-6 text-center">Linked List Insertion</h1>
+
+  <div class="mb-6 flex flex-wrap gap-3 items-center justify-center">
+    <input id="valueInput" placeholder="Node value" class="border rounded px-3 py-2" />
+    <input id="posInput" placeholder="Position (1 = after HEAD)" type="number" class="border rounded px-3 py-2 w-52" />
+    <button id="btnBeg" class="btn bg-blue-600 text-white px-4 py-2 rounded">Insert At Beginning</button>
+    <button id="btnEnd" class="btn bg-green-600 text-white px-4 py-2 rounded">Insert At End</button>
+    <button id="btnPos" class="btn bg-purple-600 text-white px-4 py-2 rounded">Insert At Position</button>
+  </div>
+
+  <div class="wrapper shadow-lg w-full max-w-5xl flex justify-center" id="canvasWrapper">
+    <svg id="arrowCanvas" preserveAspectRatio="none"></svg>
+    <div id="listContainer" aria-live="polite"></div>
+  </div>
+
+  <script type="py">
+from js import document, window
+from pyodide.ffi import create_proxy
+
+wrapper = document.getElementById("canvasWrapper")
+container = document.getElementById("listContainer")
+svg = document.getElementById("arrowCanvas")
+
+# ==== Node Builders ====
+def make_node_element(value, special=False):
+    el = document.createElement("div")
+    el.className = "node"
+    if special:   # HEAD and NULL
+        el.innerHTML = f"<div class='val' style='width:100%;border-right:0'>{value}</div>"
+    else:         # Normal node with value + pointer
+        el.innerHTML = f"<div class='val'>{value}</div><div class='ptr'>Next</div>"
+    return el
+
+def svg_clear_defs():
+    svg.innerHTML = """
+      <defs>
+        <marker id='arrowhead' markerWidth='10' markerHeight='7' refX='10' refY='3.5' orient='auto'>
+          <polygon points='0 0, 10 3.5, 0 7' fill='#1e40af' />
+        </marker>
+      </defs>
+    """
+
+# ==== Arrow Drawing ====
+def redraw_arrows(evt=None):
+    svg_clear_defs()
+    rect = wrapper.getBoundingClientRect()
+    svg.style.width = str(rect.width) + "px"
+    svg.style.height = str(rect.height) + "px"
+
+    count = container.children.length
+    if count < 2:
+        return
+
+    for i in range(count - 1):
+        n1 = container.children.item(i)
+        n2 = container.children.item(i+1)
+        if "placeholder" in (n1.className or "") or "placeholder" in (n2.className or ""):
+            continue
+        r1 = n1.getBoundingClientRect()
+        r2 = n2.getBoundingClientRect()
+        wrapperRect = wrapper.getBoundingClientRect()
+
+        x1 = r1.right - wrapperRect.left
+        y1 = r1.top + (r1.height/2) - wrapperRect.top
+        x2 = r2.left - wrapperRect.left
+        y2 = r2.top + (r2.height/2) - wrapperRect.top
+
+        line = document.createElementNS("http://www.w3.org/2000/svg", "line")
+        line.setAttribute("x1", str(x1))
+        line.setAttribute("y1", str(y1))
+        line.setAttribute("x2", str(x2))
+        line.setAttribute("y2", str(y2))
+        line.setAttribute("stroke", "#1e40af")
+        line.setAttribute("stroke-width", "3")
+        line.setAttribute("opacity", "0.9")
+        line.setAttribute("marker-end", "url(#arrowhead)")
+        line.setAttribute("stroke-linecap", "round")
+        svg.appendChild(line)
+
+# ==== Animation Logic ====
+def animate_insert(value, index):
+    max_index = container.children.length
+    index = max(0, min(index, max_index))
+
+    # placeholder (invisible, reserves space)
+    placeholder = make_node_element(value)
+    placeholder.classList.add("placeholder")
+    if index >= container.children.length:
+        container.appendChild(placeholder)
+    else:
+        container.insertBefore(placeholder, container.children.item(index))
+
+    # floating node (appears below first)
+    moving = make_node_element(value)
+    moving.classList.add("moving")
+    wrapper.appendChild(moving)
+
+    wrapperRect = wrapper.getBoundingClientRect()
+    movingRect = moving.getBoundingClientRect()
+    start_left = wrapperRect.left + (wrapperRect.width - movingRect.width) / 2
+    start_top = wrapperRect.top + wrapperRect.height + 12
+
+    moving.style.left = str(start_left - wrapperRect.left) + "px"
+    moving.style.top = str(start_top - wrapperRect.top) + "px"
+    _ = moving.getBoundingClientRect()  # force reflow
+
+    targetRect = placeholder.getBoundingClientRect()
+    target_left = targetRect.left - wrapperRect.left
+    target_top = targetRect.top - wrapperRect.top
+
+    # wait 1 second before moving
+    def start_move(evt=None):
+        moving.style.left = str(target_left) + "px"
+        moving.style.top = str(target_top) + "px"
+
+    window.setTimeout(create_proxy(start_move), 1000)
+
+    def on_end(evt):
+        real_node = make_node_element(value)
+        container.replaceChild(real_node, placeholder)
+        try: wrapper.removeChild(moving)
+        except Exception: pass
+        redraw_arrows()
+    moving.addEventListener("transitionend", create_proxy(on_end), {"once": True})
+
+# ==== Insert Ops ====
+def insert_at_beginning(evt=None):
+    val = document.getElementById("valueInput").value.strip()
+    if not val: 
+        window.alert("Please enter a node value")
+        return
+    animate_insert(val, 1)  # after HEAD
+
+def insert_at_end(evt=None):
+    val = document.getElementById("valueInput").value.strip()
+    if not val: 
+        window.alert("Please enter a node value")
+        return
+    last_index = container.children.length - 1
+    animate_insert(val, last_index)
+
+def insert_at_position(evt=None):
+    val = document.getElementById("valueInput").value.strip()
+    pos_str = document.getElementById("posInput").value
+    if not val or not pos_str:
+        window.alert("Please enter value and position")
+        return
+    try:
+        pos = int(pos_str)
+    except:
+        window.alert("Position must be an integer (1 = after HEAD)")
+        return
+    last_index = container.children.length - 1
+    if pos < 1 or pos > last_index:
+        window.alert(f"Invalid position! Choose between 1 and {last_index}.")
+        return
+    animate_insert(val, pos)
+
+# ==== Events ====
+document.getElementById("btnBeg").addEventListener("click", create_proxy(insert_at_beginning))
+document.getElementById("btnEnd").addEventListener("click", create_proxy(insert_at_end))
+document.getElementById("btnPos").addEventListener("click", create_proxy(insert_at_position))
+
+def on_resize(evt=None):
+    def do_redraw(_=None): redraw_arrows()
+    window.setTimeout(create_proxy(do_redraw), 50)
+window.addEventListener("resize", create_proxy(on_resize))
+
+# ==== Init ====
+svg_clear_defs()
+container.appendChild(make_node_element("HEAD", special=True))
+container.appendChild(make_node_element("NULL", special=True))
+window.setTimeout(create_proxy(lambda e=None: redraw_arrows()), 80)
+  </script>
+</body>
+</html>
