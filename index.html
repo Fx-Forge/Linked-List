@@ -206,10 +206,22 @@ def animate_insert(value, index):
     window.setTimeout(create_proxy(start_move), 1000)
 
     def on_end(evt):
+    # Ensure this fires only for the actual moving node
+        if evt.target != moving:
+            return
+
         real_node = make_node_element(value)
-        container.replaceChild(real_node, placeholder)
-        try: wrapper.removeChild(moving)
-        except Exception: pass
+
+        # Only replace if placeholder still exists
+        if placeholder.parentNode == container:
+            container.replaceChild(real_node, placeholder)
+
+        # Safe remove of moving node
+        try:
+            wrapper.removeChild(moving)
+        except Exception:
+            pass
+
         redraw_arrows()
     moving.addEventListener("transitionend", create_proxy(on_end), {"once": True})
 
